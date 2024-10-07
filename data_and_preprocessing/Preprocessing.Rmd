@@ -1,0 +1,17 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(sqldf)
+library(readxl)
+library(xlsx)
+```
+
+```{r}
+og_mci = read_csv("Major_Crime_Indicators_Open_Data_6927126107499016617.csv")
+og_mci
+```
+
