@@ -15,3 +15,53 @@ og_mci = read_csv("Major_Crime_Indicators_Open_Data_6927126107499016617.csv")
 og_mci
 ```
 
+```{r}
+# Writing out features onto an excel file so its easier to manually assess
+# og_mci %>% distinct(LOCATION_TYPE) -> temp  # 54 values, may have to feature engineer this
+# 
+# sqldf("
+#       SELECT OFFENCE, COUNT(OBJECTID) num_rows
+#       FROM og_mci
+#       GROUP BY OFFENCE
+#       ") -> temp
+# 
+# write.xlsx(temp, "temp.xlsx")
+
+location_type_rework = read_xlsx("feature_rework.xlsx", "LOCATION_TYPE")
+ucr_code_rework = read_xlsx("feature_rework.xlsx", "UCR_CODE")
+offence_rework = read_xlsx("feature_rework.xlsx", "OFFENCE")
+month_rework = read_xlsx("feature_rework.xlsx", "MONTH")
+day_rework = read_xlsx("feature_rework.xlsx", "DAY")
+```
+
+Adding the features together
+
+```{r}
+sqldf("
+      SELECT A.*, B.LOCATION_TYPE_REWORK, C.UCR_CODE_DESCRIPTION, C.UCR_CODE_CATEGORY, D.OFFENCE_REWORK,
+             E.MONTH_NUM REPORT_MONTH_NUM, F.MONTH_NUM OCC_MONTH_NUM,
+             G.DOW_NUM REPORT_DOW_NUM, H.DOW_NUM OCC_DOW_NUM
+      FROM og_mci A LEFT JOIN location_type_rework B
+      ON A.LOCATION_TYPE = B.LOCATION_TYPE
+      LEFT JOIN ucr_code_rework C
+      ON A.UCR_CODE = C.UCR_CODE
+      LEFT JOIN offence_rework D
+      ON A.OFFENCE = D.OFFENCE
+      LEFT JOIN month_rework E
+      ON A.REPORT_MONTH = E.MONTH
+      LEFT JOIN month_rework F
+      ON A.OCC_MONTH = F.MONTH
+      LEFT JOIN day_rework G
+      ON A.REPORT_DOW = G.DAY_OF_WEEK
+      LEFT JOIN day_rework H
+      ON A.OCC_DOW = H.DAY_OF_WEEK
+      ") -> to_write
+to_write
+```
+
+Writing this to a csv
+
+```{r}
+write.csv(to_write, "mci_with_reworked_descriptions.csv", row.names=FALSE, na="")
+```
+
