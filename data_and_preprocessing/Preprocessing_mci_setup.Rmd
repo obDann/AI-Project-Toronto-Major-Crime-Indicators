@@ -112,7 +112,7 @@ sqldf("
       ") %>% 
    mutate(COVID_ERA = ifelse(OCC_YEAR < 3, "PRE-COVID",
                              ifelse(OCC_YEAR < 5, "COVID", "POST-COVID"))) %>% 
-   select(OCC_YEAR:DOW_SIMPLE, COVID_ERA, NUM_CRIMES) -> aggregated_count
+   select(OCC_YEAR:DOW_SIMPLE, COVID_ERA, MCI_CATEGORY, NUM_CRIMES) -> aggregated_count
 aggregated_count
 ```
 
