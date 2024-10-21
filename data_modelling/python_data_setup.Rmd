@@ -394,6 +394,6 @@ interaction_ready %>%
 ```
 
 ```{r}
-write.csv(dataset_to_python, "for_python_modelling.csv")
+write.csv(dataset_to_python, "for_python_modelling.csv", row.names = FALSE)
 ```
 
