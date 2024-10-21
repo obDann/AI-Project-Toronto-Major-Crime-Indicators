@@ -1,0 +1,399 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(sqldf)
+library(readxl)
+# library(caret)
+library(Metrics)
+```
+
+```{r}
+og_data = read_csv("../data_and_preprocessing/mci_regression_setup.csv")
+og_data
+```
+
+As we are going to input this data into a model, one of the first things to look into is statistical significance on individual numbers
+
+We want to aggregate days together
+
+```{r}
+og_data %>% 
+  mutate(date_agg = paste0(OCC_YEAR, "-", OCC_MONTH_NUM, "-", OCC_DAY)) -> day_setup
+```
+
+Then let's test for day of the week
+
+```{r}
+sqldf("
+      SELECT date_agg, OCC_DOW, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM day_setup
+      GROUP BY date_agg, OCC_DOW
+      ") -> day_of_week_test_setup
+
+dow_aov = aov(NUM_CRIMES~OCC_DOW, data=day_of_week_test_setup)
+summary(dow_aov)
+```
+
+There exists statistical differences, keep
+
+
+Checking Premises type
+
+```{r}
+sqldf("
+      SELECT date_agg, PREMISES_TYPE, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM day_setup
+      GROUP BY date_agg, PREMISES_TYPE
+      ") -> premises_test_setup
+
+summary(aov(NUM_CRIMES~PREMISES_TYPE, data=premises_test_setup))
+```
+
+Differences in premises type, keep
+
+
+
+Onto UCR Code Category
+
+```{r}
+sqldf("
+      SELECT date_agg, UCR_CODE_CATEGORY, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM day_setup
+      GROUP BY date_agg, UCR_CODE_CATEGORY
+      ") -> ucr_test_setup
+
+summary(aov(NUM_CRIMES~UCR_CODE_CATEGORY, data=ucr_test_setup))
+```
+
+UCR is significant, keep
+
+
+Checking offence rework
+
+```{r}
+sqldf("
+      SELECT date_agg, OFFENCE_REWORK, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM day_setup
+      GROUP BY date_agg, OFFENCE_REWORK
+      ") -> offence_test_setup
+
+summary(aov(NUM_CRIMES~OFFENCE_REWORK, data=offence_test_setup))
+```
+
+Offences are different, keep
+
+
+
+Onto Neighbourhood
+
+```{r}
+sqldf("
+      SELECT date_agg, NEIGHBOURHOOD_158, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM day_setup
+      GROUP BY date_agg, NEIGHBOURHOOD_158
+      ") -> neighborhood_test_setup
+
+summary(aov(NUM_CRIMES~NEIGHBOURHOOD_158, data=neighborhood_test_setup))
+```
+
+
+Checking holidays
+
+```{r}
+sqldf("
+      SELECT date_agg, IS_HOLIDAY, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM day_setup
+      GROUP BY date_agg, IS_HOLIDAY
+      ") -> holiday_test_setup
+
+summary(aov(NUM_CRIMES~IS_HOLIDAY, data=holiday_test_setup))
+```
+
+
+```{r}
+sqldf("
+      SELECT date_agg, HOLIDAY_DESCRIPTION, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM day_setup
+      GROUP BY date_agg, HOLIDAY_DESCRIPTION
+      ") -> holiday_desc_test_setup
+
+summary(aov(NUM_CRIMES~HOLIDAY_DESCRIPTION, data=holiday_desc_test_setup))
+```
+
+
+```{r}
+sqldf("
+      SELECT date_agg, HOLIDAY_DESCRIPTION, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM day_setup
+      GROUP BY date_agg, HOLIDAY_DESCRIPTION
+      ") -> check_avg
+
+sqldf("
+      SELECT HOLIDAY_DESCRIPTION, AVG(NUM_CRIMES)
+      FROM check_avg
+      GROUP BY HOLIDAY_DESCRIPTION
+      ")
+```
+
+For better fit, we may have to remove IS_HOLIDAY
+
+
+Moving on, looking at day of week (simple), so Weekday vs Friday vs saturday/sunday
+
+```{r}
+sqldf("
+      SELECT date_agg, DOW_SIMPLE, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM day_setup
+      GROUP BY date_agg, DOW_SIMPLE
+      ") -> check_avg
+
+sqldf("
+      SELECT DOW_SIMPLE, AVG(NUM_CRIMES)
+      FROM check_avg
+      GROUP BY DOW_SIMPLE
+      ") 
+```
+
+Interestingly enough, weekday and weekend look like they have approximate amounts; let's test this
+
+```{r}
+day_setup %>% filter(DOW_SIMPLE != 'Friday') -> dataset_test_dow_simple
+
+sqldf("
+      SELECT date_agg, DOW_SIMPLE, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM dataset_test_dow_simple
+      GROUP BY date_agg, DOW_SIMPLE
+      ") -> dow_simple_test_setup
+t.test(NUM_CRIMES~DOW_SIMPLE, data=dow_simple_test_setup)
+```
+
+No evidence of differences - interesting!
+
+```{r}
+sqldf("
+      SELECT date_agg, DOW_SIMPLE, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM day_setup
+      GROUP BY date_agg, DOW_SIMPLE
+      ") -> dow_simple_test_setup
+summary(aov(NUM_CRIMES~DOW_SIMPLE, data=dow_simple_test_setup))
+```
+
+So a non-friday; looking at day-averages
+
+```{r}
+sqldf("
+      SELECT date_agg, OCC_DOW, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM day_setup
+      GROUP BY date_agg, OCC_DOW
+      ") -> crimes_per_day_of_week
+
+sqldf("
+      SELECT OCC_DOW, AVG(NUM_CRIMES)
+      FROM crimes_per_day_of_week
+      GROUP BY OCC_DOW
+      ") 
+```
+
+doing an anova, without Friday
+
+```{r}
+crimes_per_day_of_week %>% filter(OCC_DOW != "Friday") -> to_test_dow_again
+summary(aov(NUM_CRIMES~OCC_DOW, data = to_test_dow_again))
+```
+
+So in this case, we state if it's a friday or not
+
+Let's look into covid eras
+
+```{r}
+sqldf("
+      SELECT date_agg, COVID_ERA, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM day_setup
+      GROUP BY date_agg, COVID_ERA
+      ") -> covid_era_check
+
+sqldf("
+      SELECT COVID_ERA, AVG(NUM_CRIMES)
+      FROM covid_era_check
+      GROUP BY COVID_ERA
+      ") 
+```
+
+```{r}
+summary(aov(NUM_CRIMES~COVID_ERA, covid_era_check))
+```
+
+Evidence of differences in the COVID ERA
+
+
+### And that's a wrap for basic statistical differences
+
+For our dataframe, we have to make a new column called friday vs non-friday, and drop some variables
+
+```{r}
+og_data %>% 
+  mutate(IS_FRIDAY = ifelse(OCC_DOW == 'Friday', 'Y', 'N')) %>% 
+  select(-OCC_DOW_NUM, -OCC_DOW, -DOW_SIMPLE) -> to_normalize
+```
+
+Next, we need to normalize some years. First, we want to get the maximum of each year for day of year
+
+```{r}
+sqldf("
+      SELECT OCC_YEAR, MAX(OCC_DOY) max_doy
+      FROM to_normalize
+      GROUP BY OCC_YEAR
+      ") -> for_normalizing_doy
+
+sqldf("
+      SELECT OCC_YEAR, OCC_MONTH_NUM, MAX(OCC_DAY) max_occ_day
+      FROM to_normalize
+      GROUP BY OCC_YEAR, OCC_MONTH_NUM
+      ") -> for_normalizing_occ_day
+
+sqldf("
+      SELECT A.*, B.max_doy, C.max_occ_day
+      FROM to_normalize A LEFT JOIN for_normalizing_doy B
+      ON A.OCC_YEAR = B.OCC_YEAR
+      LEFT JOIN for_normalizing_occ_day C
+      ON  A.OCC_YEAR = C.OCC_YEAR
+      AND A.OCC_MONTH_NUM = C.OCC_MONTH_NUM
+      ") %>% 
+  mutate(
+    OCC_MONTH_NORMAL = OCC_MONTH_NUM / 12,
+    OCC_DAY_NORMAL = OCC_DAY / max_occ_day,
+    OCC_HOUR_NORMAL = (OCC_HOUR + 1) / 24,
+    OCC_DOY_NORMAL = OCC_DOY / max_doy,
+    date_for_summary = paste0(OCC_YEAR, "-", OCC_MONTH_NUM, "-", OCC_DAY)
+  ) %>% select(-max_doy, -max_occ_day) -> interaction_ready
+interaction_ready
+```
+
+
+### Interaction analyses
+
+Let's consider month and day, and determine if there is an interaction analysis. As an example, weather can be part of a causal factor, but you have a month like October where it can be really hot in the beginning and then really cold later on
+
+```{r}
+sqldf("
+      SELECT date_for_summary, OCC_YEAR, OCC_MONTH_NORMAL, OCC_DAY_NORMAL, OCC_DOY_NORMAL, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM interaction_ready
+      GROUP BY date_for_summary, OCC_MONTH_NORMAL, OCC_DAY_NORMAL
+      ") -> interaction_setup_month_day
+
+
+day_month_inter = aov(NUM_CRIMES~OCC_MONTH_NORMAL*OCC_DAY_NORMAL, data = interaction_setup_month_day)
+summary(day_month_inter)
+```
+
+
+No synergy, let's consider removing the synergy term and check significance
+
+```{r}
+without_inter = update(day_month_inter, .~.-OCC_MONTH_NORMAL:OCC_DAY_NORMAL)
+summary(without_inter)
+```
+
+Both terms are important, but no synergy.
+
+The other "synergy" factor to include is division and location - we know from Tableau that there does exist synergy
+
+```{r}
+# sqldf("
+#       SELECT date_for_summary, DIVISION, NEIGHBOURHOOD_158, SUM(NUM_CRIMES) NUM_CRIMES
+#       FROM interaction_ready
+#       GROUP BY date_for_summary, DIVISION, NEIGHBOURHOOD_158, OCC_DAY_NORMAL
+#       ") -> interaction_setup_division_neighbourhood
+# 
+# 
+# division_hood_inter = aov(NUM_CRIMES~DIVISION*NEIGHBOURHOOD_158, data = interaction_setup_division_neighbourhood)
+# summary(division_hood_inter)
+```
+
+This is significant, but it took about 30 minutes to run - adding a synergy effect may be later
+
+
+Lastly is the decision between day-month vs day of year - so we create two models
+
+```{r}
+month_model = glm(NUM_CRIMES~OCC_YEAR*OCC_MONTH_NORMAL*OCC_DAY_NORMAL, family=poisson(), data=interaction_setup_month_day)
+doy_model = glm(NUM_CRIMES~OCC_YEAR*OCC_DOY_NORMAL, family=poisson(), data=interaction_setup_month_day)
+AIC(month_model, doy_model)
+```
+
+The lower the better, thus go for the month-day model; testing for statistical differences
+
+```{r}
+anova(month_model, doy_model, test="LRT")
+```
+
+There are differences - so we remove day of year
+
+The last ineraction I want to test out is premises type and neighbourhood
+
+```{r}
+# sqldf("
+#       SELECT date_for_summary, PREMISES_TYPE, NEIGHBOURHOOD_158, SUM(NUM_CRIMES) NUM_CRIMES
+#       FROM interaction_ready
+#       GROUP BY date_for_summary, PREMISES_TYPE, NEIGHBOURHOOD_158
+#       ") -> interaction_setup_premises_neighbourhood
+# neighb_premises = aov(NUM_CRIMES~PREMISES_TYPE*NEIGHBOURHOOD_158, data = interaction_setup_premises_neighbourhood)
+# summary(neighb_premises)
+```
+
+Neighbourhood and premises is significant
+
+Checking division and premises type
+
+```{r}
+sqldf("
+      SELECT date_for_summary, PREMISES_TYPE, DIVISION, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM interaction_ready
+      GROUP BY date_for_summary, PREMISES_TYPE, DIVISION
+      ") -> interaction_setup_premises_division
+division_premises = aov(NUM_CRIMES~PREMISES_TYPE*DIVISION, data = interaction_setup_premises_division)
+summary(division_premises)
+```
+this is also significant
+
+Lastly touching on offence and UCR Code category
+
+```{r}
+sqldf("
+      SELECT date_for_summary, OFFENCE_REWORK, UCR_CODE_CATEGORY, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM interaction_ready
+      GROUP BY date_for_summary, OFFENCE_REWORK, UCR_CODE_CATEGORY
+      ") -> interaction_setup_offence_ucr
+offence_ucr = aov(NUM_CRIMES~UCR_CODE_CATEGORY*OFFENCE_REWORK, data = interaction_setup_offence_ucr)
+summary(offence_ucr)
+```
+UCR code category is only 2 degrees of freedom
+
+```{r}
+interaction_ready %>% distinct(UCR_CODE_CATEGORY, OFFENCE_REWORK)
+```
+
+Because it appears 1:1, UCR might as well not be a factor
+
+```{r}
+interaction_ready %>% distinct(OFFENCE_REWORK, MCI_CATEGORY)
+```
+
+
+
+
+Because R is actually slow, we'll try python on training
+
+```{r}
+interaction_ready %>% 
+  select(OCC_YEAR, OCC_MONTH_NORMAL, OCC_DAY_NORMAL, COVID_ERA, OCC_HOUR_NORMAL, IS_FRIDAY, HOLIDAY_DESCRIPTION, DIVISION, NEIGHBOURHOOD_158, PREMISES_TYPE, OFFENCE_REWORK, MCI_CATEGORY, NUM_CRIMES) -> dataset_to_python
+```
+
+```{r}
+write.csv(dataset_to_python, "for_python_modelling.csv")
+```
+
