@@ -9,6 +9,9 @@ library(sqldf)
 library(readxl)
 library(caret)
 library(Metrics)
+library(rpart)
+library(randomForest)
+Sys.setenv('R_MAX_VSIZE'=32000000000)
 ```
 
 ```{r}
@@ -351,28 +354,25 @@ Neighbourhood and premises is significant
 interaction_ready
 ```
 
-We are ready for modelling
-
 ```{r}
-sqldf("
-      SELECT OCC_YEAR, OCC_MONTH_NUM, OCC_DAY, OCC_DOY, DIVISION, PREMISES_TYPE, UCR_CODE_CATEGORY, OFFENCE_REWORK, NEIGHBOURHOOD_158, IS_HOLIDAY, HOLIDAY_DESCRIPTION, COVID_ERA, MCI_CATEGORY, IS_FRIDAY, OCC_MONTH_NORMAL, OCC_DAY_NORMAL, OCC_DOY_NORMAL, SUM(NUM_CRIMES) NUM_CRIMES
-      FROM interaction_ready
-      GROUP BY OCC_YEAR, OCC_MONTH_NUM, OCC_DAY, OCC_DOY, DIVISION, PREMISES_TYPE, UCR_CODE_CATEGORY, OFFENCE_REWORK, NEIGHBOURHOOD_158, IS_HOLIDAY, HOLIDAY_DESCRIPTION, COVID_ERA, MCI_CATEGORY, IS_FRIDAY, OCC_MONTH_NORMAL, OCC_DAY_NORMAL, OCC_DOY_NORMAL
-      ")
+set.seed(1001346377)
+interaction_ready %>% 
+  group_by(MCI_CATEGORY, DIVISION, NEIGHBOURHOOD_158) %>% 
+  slice_sample(prop = 0.05) %>% 
+  ungroup(.) -> new_modelling_dataset
+new_modelling_dataset
 ```
 
 
 
-# Modelling
-
 ```{r}
 set.seed(1001346377)
 formula = NUM_CRIMES~OCC_YEAR + OCC_MONTH_NORMAL + OCC_DAY_NORMAL + COVID_ERA + OCC_HOUR_NORMAL + IS_FRIDAY  + HOLIDAY_DESCRIPTION +  # time
-          DIVISION*NEIGHBOURHOOD_158*PREMISES_TYPE + # location
-          OFFENCE_REWORK*UCR_CODE_CATEGORY + MCI_CATEGORY  # offence
+          DIVISION*NEIGHBOURHOOD_158 + NEIGHBOURHOOD_158*PREMISES_TYPE + # location
+          MCI_CATEGORY  # offence
 
 k = 5
-folds = createFolds(interaction_ready$NUM_CRIMES, k=k, list=TRUE, returnTrain=TRUE)
+folds = createFolds(new_modelling_dataset$NUM_CRIMES, k=k, list=TRUE, returnTrain=TRUE)
 
 mae_values <- numeric(k)
 
@@ -381,15 +381,210 @@ for (i in 1:k){
   print(Sys.time())
   print(i)
   # splitting between training and testing
-  train_indices = folds[[1]]
-  train_data = interaction_ready[train_indices, ]
-  test_data = interaction_ready[-train_indices, ]
+  train_indices = folds[[i]]
+  train_data = new_modelling_dataset[train_indices, ]
+  test_data = new_modelling_dataset[-train_indices, ]
   glm_model = glm(formula, family=poisson(link="log"), data=train_data)
 
   predictions = predict(glm_model, newdata=test_data, type="response")
   mae_values[i] = mae(test_data$NUM_CRIMES, predictions)
 }
 print(Sys.time())
+print(mean(mae_values))
 ```
 
-This is too long - moving to Python
+
+```{r}
+set.seed(1001346377)
+interaction_ready %>%   select(OCC_YEAR,	DIVISION,	PREMISES_TYPE,
+         NEIGHBOURHOOD_158,
+         HOLIDAY_DESCRIPTION,	COVID_ERA,	MCI_CATEGORY,
+         NUM_CRIMES,	IS_FRIDAY,	OCC_MONTH_NORMAL,	OCC_DAY_NORMAL,
+         OCC_HOUR_NORMAL) -> new_modelling_dataset
+
+
+k = 5
+folds = createFolds(new_modelling_dataset$NUM_CRIMES, k=k, list=TRUE, returnTrain=TRUE)
+
+mae_values_dc <- numeric(k)
+
+
+for (i in 1:k){
+  print(Sys.time())
+  print(i)
+  # splitting between training and testing
+  train_indices = folds[[i]]
+  train_data = new_modelling_dataset[train_indices, ]
+  test_data = new_modelling_dataset[-train_indices, ]
+  model <- rpart(
+  NUM_CRIMES ~ .,
+  data = train_data,
+  method = "anova",
+  control = rpart.control(maxdepth = 10)  # Adding a complexity parameter
+  )
+
+
+  predictions = predict(model, newdata=test_data)
+  mae_values_dc[i] = mae(test_data$NUM_CRIMES, predictions)
+}
+print(Sys.time())
+print(mean(mae_values_dc))
+```
+
+```{r}
+set.seed(1001346377)
+interaction_ready %>%   select(OCC_YEAR,	DIVISION,	PREMISES_TYPE,
+         NEIGHBOURHOOD_158,
+         HOLIDAY_DESCRIPTION,	COVID_ERA,	MCI_CATEGORY,
+         NUM_CRIMES,	IS_FRIDAY,	OCC_MONTH_NORMAL,	OCC_DAY_NORMAL,
+         OCC_HOUR_NORMAL) -> new_modelling_dataset
+
+
+k = 5
+folds = createFolds(new_modelling_dataset$NUM_CRIMES, k=k, list=TRUE, returnTrain=TRUE)
+
+mae_values_rf <- numeric(k)
+
+
+for (i in 1:k){
+  print(Sys.time())
+  print(i)
+  # splitting between training and testing
+  train_indices = folds[[i]]
+  train_data = new_modelling_dataset[train_indices, ]
+  test_data = new_modelling_dataset[-train_indices, ]
+  rf_modelmodel = randomForest(
+  NUM_CRIMES ~ .,
+  data = train_data,
+  ntree = 100
+  )
+
+
+  predictions = predict(rf_modelmodel, newdata=test_data)
+  mae_values_rf[i] = mae(test_data$NUM_CRIMES, predictions)
+}
+print(Sys.time())
+print(mean(mae_values_rf))
+```
+
+
+We can train the entire dataset with a regression tree
+
+To make outputs, we can stratify from the original dataset as an MVP (as doing combinatorics would take too much memory with this current approach)
+
+```{r}
+set.seed(1001346377)
+
+# determine the number of crimes per each year
+
+sqldf("
+      SELECT A.*, B.TOTAL_CRIMES
+      FROM 
+      (SELECT OCC_YEAR, SUM(NUM_CRIMES) NUM_CRIMES
+      FROM interaction_ready
+      GROUP BY OCC_YEAR) A
+      LEFT JOIN 
+      (SELECT SUM(NUM_CRIMES) TOTAL_CRIMES FROM interaction_ready) B
+      ")  %>% 
+  mutate(proportion_of_crimes = NUM_CRIMES / TOTAL_CRIMES) -> to_give_approximation
+# we can average out the last couple of years
+avg_last_years = round((36811 + 43468) / 2, 0)
+
+approximate_data_feed = avg_last_years / 211415
+
+# making the 2024 set, we need to ensure we have 366 days because of leap year
+# and we have to populate holidays correctly
+# and we have to determine if the day is a Friday or not
+interaction_ready %>% 
+  group_by(OCC_MONTH_NUM, OCC_DAY) %>% 
+  slice_sample(prop = approximate_data_feed) %>% 
+  select(OCC_YEAR,	OCC_MONTH_NUM, OCC_DAY, OCC_HOUR, DIVISION,	PREMISES_TYPE,
+         NEIGHBOURHOOD_158,
+         MCI_CATEGORY) %>% 
+  mutate(OCC_YEAR = 2024) -> to_create_2024_ds
+
+set.seed(1001346378)
+interaction_ready %>% 
+  filter(!(OCC_MONTH_NUM == 2 & OCC_DAY == 29)) %>% 
+  group_by(OCC_MONTH_NUM, OCC_DAY) %>% 
+  slice_sample(prop = approximate_data_feed) %>% 
+  select(OCC_YEAR,	OCC_MONTH_NUM, OCC_DAY, OCC_HOUR, DIVISION,	PREMISES_TYPE,
+         NEIGHBOURHOOD_158,
+         MCI_CATEGORY) %>% 
+  mutate(OCC_YEAR = 2025) -> to_create_2025_ds
+
+sqldf("
+      SELECT * FROM to_create_2024_ds
+      UNION ALL
+      SELECT * FROM to_create_2025_ds
+      ") -> for_future_predictions_need_updated_attributes
+for_future_predictions_need_updated_attributes
+```
+
+```{r}
+get_date_attributes = read_xlsx("date_populate_attributes.xlsx", "Sheet1")
+
+sqldf("
+      SELECT A.*, B.DOY, B.IS_FRIDAY, B.HOLIDAY_DESCRIPTION
+      FROM for_future_predictions_need_updated_attributes A LEFT JOIN get_date_attributes B
+      ON  A.OCC_DAY = B.DAY
+      AND A.OCC_MONTH_NUM = B.MONTH
+      AND A.OCC_YEAR = B.YEAR
+      ") %>% 
+  mutate(OCC_YEAR_REAL = as.character(OCC_YEAR),
+         OCC_YEAR = ifelse(OCC_YEAR == 2024, 7, 8),
+         COVID_ERA = 'POST-COVID'
+         ) -> to_provide_normalization
+to_provide_normalization
+```
+```{r}
+# getting the highest day per month and year
+
+sqldf("
+      SELECT YEAR, MONTH, MAX(DAY) DAY_MAX
+      FROM get_date_attributes
+      GROUP BY YEAR, MONTH
+      ") -> day_maxing
+
+sqldf("
+      SELECT A.*, B.DAY_MAX
+      FROM to_provide_normalization A LEFT JOIN day_maxing B
+      ON  A.OCC_YEAR_REAL = B.YEAR
+      AND A.OCC_MONTH_NUM = B.MONTH
+      ") %>% 
+  mutate(OCC_MONTH_NORMAL = OCC_MONTH_NUM / 12,
+         OCC_DAY_NORMAL = OCC_DAY / DAY_MAX,
+         OCC_HOUR_NORMAL = OCC_HOUR / 23
+         ) %>% 
+  select(-DAY_MAX) -> normalized_input
+normalized_input
+```
+
+Training the regression tree
+
+```{r}
+interaction_ready %>% 
+  select(OCC_YEAR,	DIVISION,	PREMISES_TYPE,
+         NEIGHBOURHOOD_158,
+         HOLIDAY_DESCRIPTION,	COVID_ERA,	MCI_CATEGORY,
+         NUM_CRIMES,	IS_FRIDAY,	OCC_MONTH_NORMAL,	OCC_DAY_NORMAL,
+         OCC_HOUR_NORMAL) -> final_training_set
+
+
+final_model <- rpart(
+  NUM_CRIMES ~ .,
+  data = final_training_set,
+  method = "anova",
+  control = rpart.control(maxdepth = 10) 
+)
+
+
+NUM_CRIMES_PREDICTED = predict(model, newdata=normalized_input)
+```
+
+```{r}
+mvp_dataset = cbind(normalized_input, NUM_CRIMES_PREDICTED) %>% 
+  mutate(NUM_CRIMES_PREDICTED = round(NUM_CRIMES_PREDICTED, 0))
+write.csv(mvp_dataset, "mvp_dataset.csv", row.names = FALSE)
+```
+
