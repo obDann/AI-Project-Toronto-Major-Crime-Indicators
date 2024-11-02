@@ -470,7 +470,7 @@ print(mean(mae_values_rf))
 
 We can train the entire dataset with a regression tree
 
-To make outputs, we can stratify from the original dataset as an MVP (as doing combinatorics would take too much memory with this current approach)
+To make outputs, we can stratify from the original dataset (as doing combinatorics would take too much memory with this current approach)
 
 ```{r}
 set.seed(1001346377)
