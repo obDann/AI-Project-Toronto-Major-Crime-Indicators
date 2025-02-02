@@ -6,10 +6,10 @@ This repository is made as part of a submission for the course "INF2207: Practic
 The group members are as follows:
 
 ```
-Dann Sioson   - 1001346377
-Saad Umar     - 1009728813
-Anthony Huang - 1005681497
-Ang Zhao      - 1010171216
+Dann Sioson
+Saad Umar
+Anthony Huang
+Ang Zhao
 ```
 
 This dashboard utilizes data coming from the Toronto Police Service, retrieved as of October 2024. The tab "MCI Dashboard" provides predictions for police divisions relative to date, location, type of crime, and premises type in order to inform resource allocations as well as to start conversations with audience members such as the City of Toronto and Toronto Police Service.
